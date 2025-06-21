@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 2.8)
-project(genfit_residual_example LANGUAGES CXX)
+project(GFResidualExample LANGUAGES CXX)
 
 
 # Find ROOT
@@ -35,6 +35,6 @@ message(STATUS "GenFit library: ${GENFIT2_LIBRARY}")
 include_directories(${GENFIT2_INCLUDE_DIR})
 include_directories(${ROOT_INCLUDE_DIRS})
 
-add_executable(genfit_residual_example minimal_genfit_residual_example.cpp)
-target_link_libraries(genfit_residual_example ${GENFIT2_LIBRARY} ${ROOT_LIBRARIES})
+add_executable(GFResidualExample minimal_genfit_residual_example.cpp)
+target_link_libraries(GFResidualExample ${GENFIT2_LIBRARY} ${ROOT_LIBRARIES})
 
