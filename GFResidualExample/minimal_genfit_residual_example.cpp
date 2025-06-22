@@ -46,7 +46,7 @@ void run_one_fit(
     );
 
     const TVector3 refDir = refVec.Vect().Unit();
-    const TVector3 refStart(0, 0, 0);
+    const TVector3 refStart(0, 0, 5);
 
     // Generate noisy measurements along the track
     std::vector<TVector3> refPoints;
@@ -115,8 +115,10 @@ void run_one_fit(
     }
 
     // Extrapolate to a plane at the reference point/direction
-    auto* fittedRep = track.getCardinalRep();
+    auto* firstTrackPoint = track.getPoint(0);
+    const genfit::AbsMeasurement* firstMeas = firstTrackPoint->getRawMeasurement();
     auto plane = std::make_shared<genfit::DetPlane>(refStart, refDir); // target plane
+    auto* fittedRep = track.getCardinalRep();
 
     // first point in track; use the 5D state vector obtained from the track and
     // extrapolate the fitted state, not a constructed state from the seed
