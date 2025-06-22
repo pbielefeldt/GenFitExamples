@@ -5,6 +5,7 @@
 #include <Track.h>
 #include <TrackPoint.h>
 #include <PlanarMeasurement.h>
+#include <SpacepointMeasurement.h>
 #include <DetPlane.h>
 #include <RKTrackRep.h>
 #include <KalmanFitterRefTrack.h>
@@ -36,7 +37,7 @@ void run_one_fit(
     std::vector<double>& residualsU,
     std::vector<double>& residualsV
 ) {
-  // Create random reference direction and points
+    // Create random reference direction and points
     TLorentzVector refVec;
     refVec.SetXYZT(
         rnd.Uniform(5, 10),
@@ -65,28 +66,19 @@ void run_one_fit(
     genfit::Track track;
     track.addTrackRep(rep);
 
-    // Fill track with TrackPoints/PlanarMeasurements, each with a valid DetPlane
+    // Fill track with TrackPoints/SpacepointMeasurements
     for (size_t i = 0; i < measPoints.size(); ++i) {
-        const TVector3 planeO = refPoints.at(i);
-        const TVector3 planeN = refDir;
+        TVectorD xyz(3);
+        xyz[0] = measPoints.at(i).X();
+        xyz[1] = measPoints.at(i).Y();
+        xyz[2] = measPoints.at(i).Z();
 
-        const TVector3 pointOnPlane = measPoints.at(i) - planeO;
-
-        // Local axes for the plane
-        TVector3 U = planeN.Orthogonal().Unit();
-        TVector3 V = planeN.Cross(U).Unit();
-
-        TVectorD uv(2);
-        uv[0] = pointOnPlane.Dot(U);
-        uv[1] = pointOnPlane.Dot(V);
-
-        TMatrixDSym cov(2);
+        TMatrixDSym cov(3);
         cov.UnitMatrix();
         cov *= (SMEAR*SMEAR);
 
-        // Create PlanarMeasurement
-        auto* meas = new genfit::PlanarMeasurement(uv, cov, 0, i, nullptr);
-        meas->setPlane(std::make_shared<genfit::DetPlane>(planeO, planeN), 0);
+        // Create SpacepointMeasurement
+        auto* meas = new genfit::SpacepointMeasurement(xyz, cov, 0, i, nullptr);
 
         track.insertPoint(new genfit::TrackPoint(meas, &track));
     }
@@ -114,16 +106,24 @@ void run_one_fit(
         return;
     }
 
-    // Extrapolate to a plane at the reference point/direction
+    // Get first and last measured points from the track
     auto* firstTrackPoint = track.getPoint(0);
+    auto* lastTrackPoint = track.getPoint(track.getNumPoints() - 1);
+
     const genfit::AbsMeasurement* firstMeas = firstTrackPoint->getRawMeasurement();
-    auto plane = std::make_shared<genfit::DetPlane>(refStart, refDir); // target plane
+    const genfit::AbsMeasurement* lastMeas = lastTrackPoint->getRawMeasurement();
+    TVectorD coordsFirst = firstMeas->getRawHitCoords();
+    TVectorD coordsLast = lastMeas->getRawHitCoords();
+    TVector3 firstPoint(coordsFirst[0], coordsFirst[1], coordsFirst[2]);
+    TVector3 lastPoint(coordsLast[0], coordsLast[1], coordsLast[2]);
+
+    // Define the plane: origin at firstPoint, normal along (lastPoint - firstPoint)
+    TVector3 n = (lastPoint - firstPoint).Unit();
+    auto plane = std::make_shared<genfit::DetPlane>(firstPoint, n);
+
+    // Extrapolate fitted state to this plane
     auto* fittedRep = track.getCardinalRep();
-
-    // first point in track; use the 5D state vector obtained from the track and
-    // extrapolate the fitted state, not a constructed state from the seed
     auto state = track.getFittedState(0);
-
     try {
         fittedRep->extrapolateToPlane(state, plane, true, false);
     } catch (const genfit::Exception& e) {
@@ -134,8 +134,8 @@ void run_one_fit(
     // residual: position on readout plane (distance to origin of plane), which
     // will be projected to U/V; histogramming the absolute value pos-O would be
     // a Raleight distribution (no negative values possible)
-    const double resU = (fitPos - plane->getO()).Dot(plane->getU());
-    const double resV = (fitPos - plane->getO()).Dot(plane->getV());
+    double resU = (fitPos - firstPoint).Dot(plane->getU());
+    double resV = (fitPos - firstPoint).Dot(plane->getV());
 
     residualsU.push_back(resU);
     residualsV.push_back(resV);
@@ -209,7 +209,6 @@ int main() {
 
     std::cout << "mean residual(U): " << meanU << " +/- " << sdevU << "\n"
               << "mean residual(V): " << meanV << " +/- " << sdevV << std::endl;
-
 
     return 0;
 }
