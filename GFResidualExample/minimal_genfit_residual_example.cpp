@@ -26,16 +26,58 @@
 #include <cmath>
 #include <numeric>
 
+
 // === Global constants ===
 constexpr double SMEAR = 0.5;
 constexpr int N_POINTS = 15;
 constexpr int N_RUNS = 500;
 
+
+// === Helper functions ===
+double sigmaFromCov(const TVector3 &planeVec, const TMatrixDSym& cov6D) {
+    
+    // Extract position covariance (first 3x3)
+    TMatrixDSym posCov(3);
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            posCov(i, j) = cov6D(i, j);
+        }
+    }
+
+    // Compute the variance of the fitted position error when projected onto the
+    // U/V axes of the measurement plane, taking into account all correlations
+    // in the original 3D covariance
+    TVectorD dir(3);
+    for (int i = 0; i < 3; ++i) {
+        dir[i] = planeVec[i];
+    }
+
+    // Projected variance in U/V
+    double var = 0.0;
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            var += dir[i] * posCov(i, j) * dir[j];
+        }
+    }
+
+    if (var < 1e-12) {
+        std::cerr << "very small variance in " << __func__ << ": " << var << std::endl;
+        return 0;
+    }
+
+    return std::sqrt(var);
+
+}
+
+
+// === Main part ===
 // Function that runs the fit once and appends results to storage containers
 void run_one_fit(
     TRandom3& rnd,
     std::vector<double>& residualsU,
-    std::vector<double>& residualsV
+    std::vector<double>& residualsV,
+    std::vector<double>& pulldistributionU,
+    std::vector<double>& pulldistributionV
 ) {
     // Create random reference direction and points
     TLorentzVector refVec;
@@ -129,16 +171,28 @@ void run_one_fit(
     } catch (const genfit::Exception& e) {
         return;
     }
-    TVector3 fitPos = state.getPos();
+    const TVector3 fitPos = state.getPos();
+    const TMatrixDSym cov6D = fittedRep->get6DCov(state);
+
+    const double sigmaU = sigmaFromCov(plane->getU(), cov6D);
+    const double sigmaV = sigmaFromCov(plane->getV(), cov6D);
 
     // residual: position on readout plane (distance to origin of plane), which
     // will be projected to U/V; histogramming the absolute value pos-O would be
     // a Raleight distribution (no negative values possible)
-    double resU = (fitPos - firstPoint).Dot(plane->getU());
-    double resV = (fitPos - firstPoint).Dot(plane->getV());
+    const double resU = (fitPos - firstPoint).Dot(plane->getU());
+    const double resV = (fitPos - firstPoint).Dot(plane->getV());
+
+    // pull: used to assess the consistency of a fitted parameter with its
+    // expected value; the difference between the fitted value and the "true"
+    // value, divided by the uncertainty of the fitted value
+    const double pullU = resU/sigmaU;
+    const double pullV = resV/sigmaV;
 
     residualsU.push_back(resU);
     residualsV.push_back(resV);
+    pulldistributionU.push_back(pullU);
+    pulldistributionV.push_back(pullV);
 }
 
 double calculateMean(const std::vector<double>& values) {
@@ -171,9 +225,11 @@ int main() {
 
     std::vector<double> residualsU;
     std::vector<double> residualsV;
+    std::vector<double> pullsU;
+    std::vector<double> pullsV;
 
     for (int i = 0; i < N_RUNS; ++i) {
-        run_one_fit(rnd, residualsU, residualsV);
+        run_one_fit(rnd, residualsU, residualsV, pullsU, pullsV);
     }
 
     // Needed for interactive ROOT
@@ -183,10 +239,15 @@ int main() {
     // Create histograms
     TH1D* hResU = new TH1D("hResU", "Residuals U", 100, -3*SMEAR, 3*SMEAR);
     TH1D* hResV = new TH1D("hResV", "Residuals V", 100, -3*SMEAR, 3*SMEAR);
+    TH1D* hPullU = new TH1D("hPullU", "Pulls U", 100, -10, 10);
+    TH1D* hPullV = new TH1D("hPullV", "Pulls V", 100, -10, 10);
 
     // Fill histograms
     for (double val : residualsU) hResU->Fill(val);
     for (double val : residualsV) hResV->Fill(val);
+    for (double val : pullsU) hPullU->Fill(val);
+    for (double val : pullsV) hPullV->Fill(val);
+
 
     // Draw
     TCanvas* c1 = new TCanvas("c1", "Residuals", 1200, 600);
@@ -200,6 +261,15 @@ int main() {
     //c1->Update();
     //app.Run();
     c1->SaveAs("residuals.png");
+
+    TCanvas* c2 = new TCanvas("c2", "Pulls", 1200, 600);
+    c2->Divide(2,1);
+    c2->cd(1);
+    hPullU->Draw();
+    c2->cd(2);
+    hPullV->Draw();
+    c2->SaveAs("pulls.png");
+
 
     // calculate mean and standard deviation
     const double meanU = calculateMean(residualsU);

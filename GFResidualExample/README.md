@@ -49,6 +49,20 @@ Since each measurement plane is two-dimensional (`U` and `V`), the residuals are
 - Increasing `N_POINTS` (number of points per track) will not substantially change the residual width, but can improve fit stability.
 - Increasing `N_RUNS` (number of tracks) increases the sample statistics, making the distributions smoother.
 
+## Interpreting the Pull Distributions
+
+In addition to residuals, this example can analyze **pull distributions**.
+A *pull* is a normalized residual, defined as:
+
+\[
+\text{pull} = \frac{\text{fitted value} - \text{measured value}}{\text{estimated uncertainty from the fit}}
+\]
+
+- The pull quantifies how consistent the fit result is with the measurement, in units of the expected error.
+- If the fit's uncertainty estimation is accurate, the pull distribution should be centered at zero with width one (Gaussian with σ ≈ 1).
+
+Pulls are a standard tool for validating track fit quality and error estimation.
+
 ## Building GFResidualExample
 
 ### Prerequisites
@@ -121,6 +135,7 @@ You should see two distributions (U and V) with Gaussian shapes, both with mean 
 
 ## References
 
+- [CDF Note 5776, Section 2.2](https://hep-physics.rockefeller.edu/luc/technical_reports/cdf5776_pulls.pdf)
 - [GenFit2 Documentation](https://github.com/GenFit/GenFit)
 - [ROOT Documentation](https://root.cern/manual/)
 - [AbsMeasurement.h](https://github.com/GenFit/GenFit/blob/master/core/include/AbsMeasurement.h)
