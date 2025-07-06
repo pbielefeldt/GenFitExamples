@@ -186,8 +186,8 @@ void run_one_fit(
     const TVector3 fitPos = state.getPos();
     const TMatrixDSym cov6D = fittedRep->get6DCov(state);
 
-    const double sigmaU = sigmaFromCov(plane->getU(), cov6D);
-    const double sigmaV = sigmaFromCov(plane->getV(), cov6D);
+    const double sigmaU = sigmaFromCov(plane->getU().Unit(), cov6D);
+    const double sigmaV = sigmaFromCov(plane->getV().Unit(), cov6D);
 
     // residual: position on readout plane (distance to origin of plane), which
     // will be projected to U/V; histogramming the absolute value pos-O would be
@@ -216,12 +216,12 @@ int main() {
     TRandom3 rnd(0); // single RNG instance
 
     // Histograms for GenFit fit quality and output distributions
-    TH1D* hResU = new TH1D("hResU", "Residuals U", 100, -3*SMEAR, 3*SMEAR);
-    TH1D* hResV = new TH1D("hResV", "Residuals V", 100, -3*SMEAR, 3*SMEAR);
-    TH1D* hPullU = new TH1D("hPullU", "Pulls U", 100, -10, 10);
-    TH1D* hPullV = new TH1D("hPullV", "Pulls V", 100, -10, 10);
+    TH1D* hResU    = new TH1D("hResU",    "Residuals U", 100, -3*SMEAR, 3*SMEAR);
+    TH1D* hResV    = new TH1D("hResV",    "Residuals V", 100, -3*SMEAR, 3*SMEAR);
+    TH1D* hPullU   = new TH1D("hPullU",   "Pulls U",     100, -10, 10);
+    TH1D* hPullV   = new TH1D("hPullV",   "Pulls V",     100, -10, 10);
     TH1D* hChi2    = new TH1D("hChi2",    "Chi2",        100, 0, 100);
-    TH1D* hNDF     = new TH1D("hNDF",     "NDF",          20, 0, 20);
+    TH1D* hNDF     = new TH1D("hNDF",     "NDF",         100, 0, 50);
     TH1D* hChi2NDF = new TH1D("hChi2NDF", "Chi2/NDF",    100, 0, 10);
 
     int n_failed = 0;
