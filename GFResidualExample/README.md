@@ -120,10 +120,12 @@ The program generates tracks, fits them, calculates residuals, and writes output
 
 ## Output
 
-- A png file created by ROOT with the `U` and `V` residual distributions
-- (Optionally) Console output with statistics.
+- A PNG file created by ROOT with the `U` and `V` residual distributions
+- A PNG file with the pull distributions
+- A ROOT file with all data
 
 You should see two distributions (U and V) with Gaussian shapes, both with mean ≈ 0 and width ≈ `SMEAR`.
+The pull distributions are expected to be a standard Gaussian curve.
 
 ## Using this Example for Your Own Analysis
 

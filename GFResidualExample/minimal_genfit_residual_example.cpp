@@ -1,10 +1,5 @@
-#include <TROOT.h>
-#include <TApplication.h>
-#include <TH1D.h>
-#include <TCanvas.h>
 #include <Track.h>
 #include <TrackPoint.h>
-#include <PlanarMeasurement.h>
 #include <SpacepointMeasurement.h>
 #include <DetPlane.h>
 #include <RKTrackRep.h>
@@ -13,24 +8,26 @@
 #include <ConstField.h>
 #include <MaterialEffects.h>
 #include <TGeoMaterialInterface.h>
+#include <Exception.h>
+
+#include <TROOT.h>
+#include <TH1D.h>
+#include <TCanvas.h>
+#include <TFile.h>
+#include <TF1.h>
 #include <TRandom3.h>
 #include <TLorentzVector.h>
 #include <TVector3.h>
 #include <TMatrixDSym.h>
-#include <TMath.h>
+#include <TStyle.h>
+
 #include <iostream>
-#include <vector>
-#include <memory>
-#include <iostream>
-#include <vector>
-#include <cmath>
-#include <numeric>
 
 
 // === Global constants ===
-constexpr double SMEAR = 0.5;
+constexpr double SMEAR = .5;
 constexpr int N_POINTS = 15;
-constexpr int N_RUNS = 500;
+constexpr int N_RUNS = 5000;
 
 
 // === Helper functions ===
@@ -71,13 +68,17 @@ double sigmaFromCov(const TVector3 &planeVec, const TMatrixDSym& cov6D) {
 
 
 // === Main part ===
-// Function that runs the fit once and appends results to storage containers
+// Function that runs the fit once and fills the histograms
 void run_one_fit(
     TRandom3& rnd,
-    std::vector<double>& residualsU,
-    std::vector<double>& residualsV,
-    std::vector<double>& pulldistributionU,
-    std::vector<double>& pulldistributionV
+    TH1D* hResU,
+    TH1D* hResV,
+    TH1D* hPullU,
+    TH1D* hPullV,
+    TH1D* hChi2,
+    TH1D* hNDF,
+    TH1D* hChi2NDF,
+    int& n_failed
 ) {
     // Create random reference direction and points
     TLorentzVector refVec;
@@ -144,7 +145,18 @@ void run_one_fit(
     genfit::KalmanFitterRefTrack fitter;
     try {
         fitter.processTrack(&track);
+        auto* fitStatus = track.getFitStatus(rep);
+        if (!fitStatus || !fitStatus->isFitConverged()) {
+            n_failed++;
+            return;
+        }
+        // Store GenFit fit quality parameters in histograms
+        hChi2->Fill(fitStatus->getChi2());
+        hNDF->Fill(fitStatus->getNdf());
+        if (fitStatus->getNdf() > 0)
+            hChi2NDF->Fill(fitStatus->getChi2() / fitStatus->getNdf());
     } catch (const genfit::Exception& e) {
+        n_failed++;
         return;
     }
 
@@ -189,30 +201,10 @@ void run_one_fit(
     const double pullU = resU/sigmaU;
     const double pullV = resV/sigmaV;
 
-    residualsU.push_back(resU);
-    residualsV.push_back(resV);
-    pulldistributionU.push_back(pullU);
-    pulldistributionV.push_back(pullV);
-}
-
-double calculateMean(const std::vector<double>& values) {
-    if (values.empty()) {
-        return 0.0;
-    }
-    double sum = std::accumulate(values.begin(), values.end(), 0.0);
-    return sum / values.size();
-}
-
-double calculateStandardDeviation(const std::vector<double>& values, double mean) {
-    if (values.empty()) {
-        return 0.0;
-    }
-    double squaredSum = 0.0;
-    for (double value : values) {
-        squaredSum += (value - mean) * (value - mean);
-    }
-    double variance = squaredSum / values.size();
-    return std::sqrt(variance);
+    hResU->Fill(resU);
+    hResV->Fill(resV);
+    hPullU->Fill(pullU);
+    hPullV->Fill(pullV);
 }
 
 int main() {
@@ -223,62 +215,81 @@ int main() {
 
     TRandom3 rnd(0); // single RNG instance
 
-    std::vector<double> residualsU;
-    std::vector<double> residualsV;
-    std::vector<double> pullsU;
-    std::vector<double> pullsV;
-
-    for (int i = 0; i < N_RUNS; ++i) {
-        run_one_fit(rnd, residualsU, residualsV, pullsU, pullsV);
-    }
-
-    // Needed for interactive ROOT
-    //TApplication app("app", 0, nullptr);
-    gROOT->SetBatch(kTRUE); // no GUI
-
-    // Create histograms
+    // Histograms for GenFit fit quality and output distributions
     TH1D* hResU = new TH1D("hResU", "Residuals U", 100, -3*SMEAR, 3*SMEAR);
     TH1D* hResV = new TH1D("hResV", "Residuals V", 100, -3*SMEAR, 3*SMEAR);
     TH1D* hPullU = new TH1D("hPullU", "Pulls U", 100, -10, 10);
     TH1D* hPullV = new TH1D("hPullV", "Pulls V", 100, -10, 10);
+    TH1D* hChi2    = new TH1D("hChi2",    "Chi2",        100, 0, 100);
+    TH1D* hNDF     = new TH1D("hNDF",     "NDF",          20, 0, 20);
+    TH1D* hChi2NDF = new TH1D("hChi2NDF", "Chi2/NDF",    100, 0, 10);
 
-    // Fill histograms
-    for (double val : residualsU) hResU->Fill(val);
-    for (double val : residualsV) hResV->Fill(val);
-    for (double val : pullsU) hPullU->Fill(val);
-    for (double val : pullsV) hPullV->Fill(val);
+    int n_failed = 0;
 
+    for (int i = 0; i < N_RUNS; ++i) {
+        run_one_fit(rnd, hResU, hResV, hPullU, hPullV, hChi2, hNDF, hChi2NDF, n_failed);
+    }
 
-    // Draw
+    gROOT->SetBatch(kTRUE); // no GUI
+    gStyle->SetOptFit(1); // Show fit parameters in stats box
+
+    // Fit the residual and pull histograms with a Gaussian
+    hResU->Fit("gaus", "Q");
+    hResV->Fit("gaus", "Q");
+    hPullU->Fit("gaus", "Q");
+    hPullV->Fit("gaus", "Q");
+    TF1* fitResU = hResU->GetFunction("gaus");
+    TF1* fitResV = hResV->GetFunction("gaus");
+    TF1* fitPullU = hPullU->GetFunction("gaus");
+    TF1* fitPullV = hPullV->GetFunction("gaus");
+    if (fitResU && fitResV && fitPullU && fitPullV) {
+        std::cout << "Residual U: mean = " << fitResU->GetParameter(1)
+                  << ", sigma = " << fitResU->GetParameter(2) << std::endl;
+        std::cout << "Residual V: mean = " << fitResV->GetParameter(1)
+                  << ", sigma = " << fitResV->GetParameter(2) << std::endl;
+        std::cout << "Pull U: mean = " << fitPullU->GetParameter(1)
+                  << ", sigma = " << fitPullU->GetParameter(2) << std::endl;
+        std::cout << "Pull V: mean = " << fitPullV->GetParameter(1)
+                  << ", sigma = " << fitPullV->GetParameter(2) << std::endl;
+    }
+    std::cout << "Number of failed fits: " << n_failed << " out of " << N_RUNS << std::endl;
+
+    // PNG output for quick look
     TCanvas* c1 = new TCanvas("c1", "Residuals", 1200, 600);
     c1->Divide(2,1);
     c1->cd(1);
     hResU->Draw();
+    if (fitResU) fitResU->SetLineColor(kRed);
+    if (fitResU) fitResU->Draw("same");
     c1->cd(2);
     hResV->Draw();
+    if (fitResV) fitResV->SetLineColor(kRed);
+    if (fitResV) fitResV->Draw("same");
 
-    // Update and run
-    //c1->Update();
-    //app.Run();
     c1->SaveAs("residuals.png");
 
     TCanvas* c2 = new TCanvas("c2", "Pulls", 1200, 600);
     c2->Divide(2,1);
     c2->cd(1);
     hPullU->Draw();
+    if (fitPullU) fitPullU->SetLineColor(kRed);
+    if (fitPullU) fitPullU->Draw("same");
     c2->cd(2);
     hPullV->Draw();
+    if (fitPullV) fitPullV->SetLineColor(kRed);
+    if (fitPullV) fitPullV->Draw("same");
     c2->SaveAs("pulls.png");
 
-
-    // calculate mean and standard deviation
-    const double meanU = calculateMean(residualsU);
-    const double sdevU = calculateStandardDeviation(residualsU, meanU);
-    const double meanV = calculateMean(residualsV);
-    const double sdevV = calculateStandardDeviation(residualsV, meanV);
-
-    std::cout << "mean residual(U): " << meanU << " +/- " << sdevU << "\n"
-              << "mean residual(V): " << meanV << " +/- " << sdevV << std::endl;
+    // Store all histograms in a ROOT file
+    TFile fout("fit_results.root", "RECREATE");
+    hResU->Write();
+    hResV->Write();
+    hPullU->Write();
+    hPullV->Write();
+    hChi2->Write();
+    hNDF->Write();
+    hChi2NDF->Write();
+    fout.Close();
 
     return 0;
 }
