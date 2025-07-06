@@ -73,8 +73,11 @@ void run_one_fit(
     TRandom3& rnd,
     TH1D* hResU,
     TH1D* hResV,
+    TH1D* hSigmaU,
+    TH1D* hSigmaV,
     TH1D* hPullU,
     TH1D* hPullV,
+    TH1D* hPValue,
     TH1D* hChi2,
     TH1D* hNDF,
     TH1D* hChi2NDF,
@@ -153,8 +156,9 @@ void run_one_fit(
         // Store GenFit fit quality parameters in histograms
         hChi2->Fill(fitStatus->getChi2());
         hNDF->Fill(fitStatus->getNdf());
-        if (fitStatus->getNdf() > 0)
+        if (fitStatus->getNdf() > 0) {
             hChi2NDF->Fill(fitStatus->getChi2() / fitStatus->getNdf());
+        }
     } catch (const genfit::Exception& e) {
         n_failed++;
         return;
@@ -183,6 +187,8 @@ void run_one_fit(
     } catch (const genfit::Exception& e) {
         return;
     }
+    const double pValue = track.getFitStatus(fittedRep)->getPVal();
+
     const TVector3 fitPos = state.getPos();
     const TMatrixDSym cov6D = fittedRep->get6DCov(state);
 
@@ -201,8 +207,11 @@ void run_one_fit(
     const double pullU = resU/sigmaU;
     const double pullV = resV/sigmaV;
 
+    hPValue->Fill(pValue);
     hResU->Fill(resU);
     hResV->Fill(resV);
+    hSigmaU->Fill(sigmaU);
+    hSigmaV->Fill(sigmaV);
     hPullU->Fill(pullU);
     hPullV->Fill(pullV);
 }
@@ -218,8 +227,11 @@ int main() {
     // Histograms for GenFit fit quality and output distributions
     TH1D* hResU    = new TH1D("hResU",    "Residuals U", 100, -3*SMEAR, 3*SMEAR);
     TH1D* hResV    = new TH1D("hResV",    "Residuals V", 100, -3*SMEAR, 3*SMEAR);
+    TH1D* hSigmaU  = new TH1D("hSigmaU",  "Fit Sigma U", 100, 0, 2*SMEAR);
+    TH1D* hSigmaV  = new TH1D("hSigmaV",  "Fit Sigma V", 100, 0, 2*SMEAR);
     TH1D* hPullU   = new TH1D("hPullU",   "Pulls U",     100, -10, 10);
     TH1D* hPullV   = new TH1D("hPullV",   "Pulls V",     100, -10, 10);
+    TH1D* hPValue  = new TH1D("hPValue",  "P-Value",     100, 0, 1);
     TH1D* hChi2    = new TH1D("hChi2",    "Chi2",        100, 0, 100);
     TH1D* hNDF     = new TH1D("hNDF",     "NDF",         100, 0, 50);
     TH1D* hChi2NDF = new TH1D("hChi2NDF", "Chi2/NDF",    100, 0, 10);
@@ -227,7 +239,7 @@ int main() {
     int n_failed = 0;
 
     for (int i = 0; i < N_RUNS; ++i) {
-        run_one_fit(rnd, hResU, hResV, hPullU, hPullV, hChi2, hNDF, hChi2NDF, n_failed);
+        run_one_fit(rnd, hResU, hResV, hSigmaU, hSigmaV, hPullU, hPullV, hPValue, hChi2, hNDF, hChi2NDF, n_failed);
     }
 
     gROOT->SetBatch(kTRUE); // no GUI
@@ -284,8 +296,11 @@ int main() {
     TFile fout("fit_results.root", "RECREATE");
     hResU->Write();
     hResV->Write();
+    hSigmaU->Write();
+    hSigmaV->Write();
     hPullU->Write();
     hPullV->Write();
+    hPValue->Write();
     hChi2->Write();
     hNDF->Write();
     hChi2NDF->Write();
