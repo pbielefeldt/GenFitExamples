@@ -22,7 +22,8 @@
 #include <TStyle.h>
 
 #include <iostream>
-
+#include <vector>
+#include <memory>
 
 // === Global constants ===
 constexpr double SMEAR = .5;
@@ -31,8 +32,9 @@ constexpr int N_RUNS = 5000;
 
 
 // === Helper functions ===
+// --- Project covariance along vector ---
 double sigmaFromCov(const TVector3 &planeVec, const TMatrixDSym& cov6D) {
-    
+
     // Extract position covariance (first 3x3)
     TMatrixDSym posCov(3);
     for (int i = 0; i < 3; ++i) {
@@ -63,7 +65,20 @@ double sigmaFromCov(const TVector3 &planeVec, const TMatrixDSym& cov6D) {
     }
 
     return std::sqrt(var);
+}
 
+// --- Calculate intersection of a track with a plane ---
+// Track: r = r0 + s*dir
+// Plane: (r - p0) . n = 0  =>  s = ((p0 - r0) . n) / (dir . n)
+TVector3 intersectionTrackPlane(const TVector3& r0, const TVector3& dir,
+                                const TVector3& p0, const TVector3& n) {
+    double denom = dir.Dot(n);
+    if (std::abs(denom) < 1e-10) {
+        // Parallel: return NaN vector
+        return TVector3(NAN, NAN, NAN);
+    }
+    double s = (p0 - r0).Dot(n) / denom;
+    return r0 + s * dir;
 }
 
 
@@ -144,7 +159,7 @@ void run_one_fit(
     track.setStateSeed(seedState);
     track.setCovSeed(seedCov);
 
-    // Fit
+    // Run the fit
     genfit::KalmanFitterRefTrack fitter;
     try {
         fitter.processTrack(&track);
@@ -168,17 +183,17 @@ void run_one_fit(
     auto* firstTrackPoint = track.getPoint(0);
     auto* lastTrackPoint = track.getPoint(track.getNumPoints() - 1);
 
-    //const genfit::AbsMeasurement* firstMeas = firstTrackPoint->getRawMeasurement();
+    const genfit::AbsMeasurement* firstMeas = firstTrackPoint->getRawMeasurement();
     const genfit::AbsMeasurement* lastMeas = lastTrackPoint->getRawMeasurement();
-    //TVectorD coordsFirst = firstMeas->getRawHitCoords();
+    TVectorD coordsFirst = firstMeas->getRawHitCoords();
     TVectorD coordsLast = lastMeas->getRawHitCoords();
-    //TVector3 firstPoint(coordsFirst[0], coordsFirst[1], coordsFirst[2]);
-    TVector3 firstPoint = refPoints.at(0);
+    TVector3 firstPoint(coordsFirst[0], coordsFirst[1], coordsFirst[2]);
     TVector3 lastPoint(coordsLast[0], coordsLast[1], coordsLast[2]);
 
-    // Define the plane: origin at firstPoint, normal along (lastPoint - firstPoint)
-    TVector3 n = (lastPoint - firstPoint).Unit();
-    auto plane = std::make_shared<genfit::DetPlane>(firstPoint, n);
+    // Plane origin: firstPoint (measured), normal: (lastPoint - firstPoint)
+    TVector3 planeOrigin = firstPoint;
+    TVector3 planeNormal = (lastPoint - firstPoint).Unit();
+    auto plane = std::make_shared<genfit::DetPlane>(planeOrigin, planeNormal);
 
     // Extrapolate fitted state to this plane
     auto* fittedRep = track.getCardinalRep();
@@ -193,14 +208,26 @@ void run_one_fit(
     const TVector3 fitPos = state.getPos();
     const TMatrixDSym cov6D = fittedRep->get6DCov(state);
 
-    const double sigmaU = sigmaFromCov(plane->getU().Unit(), cov6D);
-    const double sigmaV = sigmaFromCov(plane->getV().Unit(), cov6D);
+    // Calculate the "true" (simulated) track position in the plane
+    // Use refStart, refDir for simulated track; planeOrigin, planeNormal for plane
+    TVector3 truePosInPlane = intersectionTrackPlane(refStart, refDir, planeOrigin, planeNormal);
 
+    if (std::isnan(truePosInPlane.X())) {
+        // Track is parallel to plane; skip this event
+        return;
+    }
+
+    // Project residual and uncertainty into plane U/V axes
     // residual: position on readout plane (distance to origin of plane), which
     // will be projected to U/V; histogramming the absolute value pos-O would be
     // a Raleight distribution (no negative values possible)
-    const double resU = (fitPos - firstPoint).Dot(plane->getU());
-    const double resV = (fitPos - firstPoint).Dot(plane->getV());
+    TVector3 resVec = fitPos - truePosInPlane;
+    const double resU = resVec.Dot(plane->getU());
+    const double resV = resVec.Dot(plane->getV());
+
+    const double sigmaU = sigmaFromCov(plane->getU().Unit(), cov6D);
+    const double sigmaV = sigmaFromCov(plane->getV().Unit(), cov6D);
+
 
     // pull: used to assess the consistency of a fitted parameter with its
     // expected value; the difference between the fitted value and the "true"
@@ -239,6 +266,7 @@ int main() {
 
     int n_failed = 0;
 
+    // --- Main loop ---
     for (int i = 0; i < N_RUNS; ++i) {
         run_one_fit(rnd, hResU, hResV, hSigmaU, hSigmaV, hPullU, hPullV, hPValue, hChi2, hNDF, hChi2NDF, n_failed);
     }

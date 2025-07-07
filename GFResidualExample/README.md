@@ -28,7 +28,7 @@ In this context, a **residual** is the difference between the simulated ("Monte 
 - **Fit:**
   GenFit2 reconstructs a straight track from the smeared points using its 5D track representation, but in this example the underlying truth is a straight line.
 - **Residual:**
-  For each measurement, the residual is calculated as the difference between the fitted track's intersection with the measurement plane and the original (truth) point, projected onto the plane's `U` and `V` axes.
+  For each measurement, the residual is calculated as the difference between the fitted track's intersection with the measurement plane and the intersection point of the "true" track (`intersectionTrackPlane`) with the plane, projected onto the plane's `U` and `V` axes.
 
 This procedure is typical for performance, resolution, and alignment studies where the underlying geometry is either simple or intentionally abstracted away.
 
