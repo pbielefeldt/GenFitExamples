@@ -168,11 +168,12 @@ void run_one_fit(
     auto* firstTrackPoint = track.getPoint(0);
     auto* lastTrackPoint = track.getPoint(track.getNumPoints() - 1);
 
-    const genfit::AbsMeasurement* firstMeas = firstTrackPoint->getRawMeasurement();
+    //const genfit::AbsMeasurement* firstMeas = firstTrackPoint->getRawMeasurement();
     const genfit::AbsMeasurement* lastMeas = lastTrackPoint->getRawMeasurement();
-    TVectorD coordsFirst = firstMeas->getRawHitCoords();
+    //TVectorD coordsFirst = firstMeas->getRawHitCoords();
     TVectorD coordsLast = lastMeas->getRawHitCoords();
-    TVector3 firstPoint(coordsFirst[0], coordsFirst[1], coordsFirst[2]);
+    //TVector3 firstPoint(coordsFirst[0], coordsFirst[1], coordsFirst[2]);
+    TVector3 firstPoint = refPoints.at(0);
     TVector3 lastPoint(coordsLast[0], coordsLast[1], coordsLast[2]);
 
     // Define the plane: origin at firstPoint, normal along (lastPoint - firstPoint)
