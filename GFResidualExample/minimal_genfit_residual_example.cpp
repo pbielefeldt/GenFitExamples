@@ -31,57 +31,6 @@ constexpr int N_POINTS = 15;
 constexpr int N_RUNS = 5000;
 
 
-// === Helper functions ===
-// --- Project covariance along vector ---
-double sigmaFromCov(const TVector3 &planeVec, const TMatrixDSym& cov6D) {
-
-    // Extract position covariance (first 3x3)
-    TMatrixDSym posCov(3);
-    for (int i = 0; i < 3; ++i) {
-        for (int j = 0; j < 3; ++j) {
-            posCov(i, j) = cov6D(i, j);
-        }
-    }
-
-    // Compute the variance of the fitted position error when projected onto the
-    // U/V axes of the measurement plane, taking into account all correlations
-    // in the original 3D covariance
-    TVectorD dir(3);
-    for (int i = 0; i < 3; ++i) {
-        dir[i] = planeVec[i];
-    }
-
-    // Projected variance in U/V
-    double var = 0.0;
-    for (int i = 0; i < 3; ++i) {
-        for (int j = 0; j < 3; ++j) {
-            var += dir[i] * posCov(i, j) * dir[j];
-        }
-    }
-
-    if (var < 1e-12) {
-        std::cerr << "very small variance in " << __func__ << ": " << var << std::endl;
-        return 0;
-    }
-
-    return std::sqrt(var);
-}
-
-// --- Calculate intersection of a track with a plane ---
-// Track: r = r0 + s*dir
-// Plane: (r - p0) . n = 0  =>  s = ((p0 - r0) . n) / (dir . n)
-TVector3 intersectionTrackPlane(const TVector3& r0, const TVector3& dir,
-                                const TVector3& p0, const TVector3& n) {
-    double denom = dir.Dot(n);
-    if (std::abs(denom) < 1e-10) {
-        // Parallel: return NaN vector
-        return TVector3(NAN, NAN, NAN);
-    }
-    double s = (p0 - r0).Dot(n) / denom;
-    return r0 + s * dir;
-}
-
-
 // === Main part ===
 // Function that runs the fit once and fills the histograms
 void run_one_fit(
@@ -98,6 +47,7 @@ void run_one_fit(
     TH1D* hChi2NDF,
     int& n_failed
 ) {
+    //--- Generate reference track ---//
     // Create random reference direction and points
     TLorentzVector refVec;
     refVec.SetXYZT(
@@ -144,6 +94,7 @@ void run_one_fit(
         track.insertPoint(new genfit::TrackPoint(meas, &track));
     }
 
+    //--- Track Fitting ---//
     // Set initial seed state (position, momentum)
     TVectorD seedState(6);
     seedState[0] = refStart.X();
@@ -179,6 +130,7 @@ void run_one_fit(
         return;
     }
 
+    //--- Readout on Reference Plane ---//
     // Get first and last measured points from the track
     auto* firstTrackPoint = track.getPoint(0);
     auto* lastTrackPoint = track.getPoint(track.getNumPoints() - 1);
@@ -207,27 +159,57 @@ void run_one_fit(
 
     const TVector3 fitPos = state.getPos();
     const TMatrixDSym cov6D = fittedRep->get6DCov(state);
-
-    // Calculate the "true" (simulated) track position in the plane
-    // Use refStart, refDir for simulated track; planeOrigin, planeNormal for plane
-    TVector3 truePosInPlane = intersectionTrackPlane(refStart, refDir, planeOrigin, planeNormal);
-
-    if (std::isnan(truePosInPlane.X())) {
+    
+    //--- Calculation of Residuals and Pulls ---//
+    // Calculate the intersection point of the reference (simulated) track with the detector plane.
+    // The reference track is defined as: r(t) = refStart + t * refDir
+    // The plane is defined by a point (planeOrigin) and a normal vector (planeNormal).
+    // The intersection occurs at the value of t where (r(t) - planeOrigin) . planeNormal == 0
+    // Solve for t:
+    //   (refStart + t * refDir - planeOrigin) . planeNormal = 0
+    //   (refStart - planeOrigin) . planeNormal + t * (refDir . planeNormal) = 0
+    //   t = (planeOrigin - refStart) . planeNormal / (refDir . planeNormal)
+    const double refDir_dot_planeNormal = refDir.Dot(planeNormal);
+    if (std::abs(refDir_dot_planeNormal) < 1e-10) {
         // Track is parallel to plane; skip this event
         return;
     }
+    const double intersectionParam = (planeOrigin - refStart).Dot(planeNormal) / refDir_dot_planeNormal;
+    const TVector3 truePosInPlane = refStart + intersectionParam * refDir; // Intersection point
+
+    // Extract the 3x3 position block from the 6x6 covariance
+    TMatrixDSym posCov(3);
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            posCov(i, j) = cov6D(i, j);
+        }
+    }
+
+    // Get the U and V unit vectors from your DetPlane
+    const TVector3 planeU = plane->getU().Unit(); // U direction of the plane
+    const TVector3 planeV = plane->getV().Unit(); // V direction of the plane
+
+    // Convert to TVectorD for ROOT math
+    TVectorD uvec(3); uvec[0] = planeU.X(); uvec[1] = planeU.Y(); uvec[2] = planeU.Z();
+    TVectorD vvec(3); vvec[0] = planeV.X(); vvec[1] = planeV.Y(); vvec[2] = planeV.Z();
 
     // Project residual and uncertainty into plane U/V axes
     // residual: position on readout plane (distance to origin of plane), which
     // will be projected to U/V; histogramming the absolute value pos-O would be
     // a Raleight distribution (no negative values possible)
     TVector3 resVec = fitPos - truePosInPlane;
-    const double resU = resVec.Dot(plane->getU());
-    const double resV = resVec.Dot(plane->getV());
+    const double resU = resVec.Dot(planeU);
+    const double resV = resVec.Dot(planeV);
 
-    const double sigmaU = sigmaFromCov(plane->getU().Unit(), cov6D);
-    const double sigmaV = sigmaFromCov(plane->getV().Unit(), cov6D);
+    // Calculate the reconstructed track error of the track
+    // Project the 3D position covariance onto the U and V axes of the plane:
+    // varU = u^T * posCov * u, where u is the U unit vector of the plane.
+    const double varU = uvec * (posCov * uvec); // u^T * Cov * u
+    const double varV = vvec * (posCov * vvec); // v^T * Cov * v
 
+    // Standard deviations (error along U/V)
+    const double sigmaU = std::sqrt(varU);
+    const double sigmaV = std::sqrt(varV);
 
     // pull: used to assess the consistency of a fitted parameter with its
     // expected value; the difference between the fitted value and the "true"
@@ -337,4 +319,3 @@ int main() {
 
     return 0;
 }
-
