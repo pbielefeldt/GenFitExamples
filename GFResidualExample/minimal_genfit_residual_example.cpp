@@ -19,6 +19,7 @@
 #include <TLorentzVector.h>
 #include <TVector3.h>
 #include <TMatrixDSym.h>
+#include <TLatex.h>
 #include <TStyle.h>
 
 #include <iostream>
@@ -28,7 +29,7 @@
 // === Global constants ===
 constexpr double SMEAR = .5;
 constexpr int N_POINTS = 15;
-constexpr int N_RUNS = 5000;
+constexpr int N_RUNS = 2000;
 
 
 // === Main part ===
@@ -159,7 +160,7 @@ void run_one_fit(
 
     const TVector3 fitPos = state.getPos();
     const TMatrixDSym cov6D = fittedRep->get6DCov(state);
-    
+
     //--- Calculation of Residuals and Pulls ---//
     // Calculate the intersection point of the reference (simulated) track with the detector plane.
     // The reference track is defined as: r(t) = refStart + t * refDir
@@ -255,6 +256,14 @@ int main() {
 
     gROOT->SetBatch(kTRUE); // no GUI
     gStyle->SetOptFit(1); // Show fit parameters in stats box
+    gStyle->SetFitFormat(".3g"); // round fit results to three significant digits
+
+    // Beautify histograms
+    auto beautifyHist = [](TH1D* h) {
+        h->SetFillColor(kAzure+1);
+        h->SetLineColor(kAzure+4);
+        h->SetLineWidth(2);
+    };
 
     // Fit the residual and pull histograms with a Gaussian
     hResU->Fit("gaus", "Q");
@@ -277,31 +286,52 @@ int main() {
     }
     std::cout << "Number of failed fits: " << n_failed << " out of " << N_RUNS << std::endl;
 
-    // PNG output for quick look
+    // Beautify histograms and fit lines
+    hResU->GetXaxis()->SetTitle("residual / unit lengths");
+    hResU->GetYaxis()->SetTitle("Entries");
+    beautifyHist(hResU);
+
+    hResV->GetXaxis()->SetTitle("residual / unit lengths");
+    hResV->GetYaxis()->SetTitle("Entries");
+    beautifyHist(hResV);
+
+    hPullU->GetXaxis()->SetTitle("pull");
+    hPullU->GetYaxis()->SetTitle("Entries");
+    beautifyHist(hPullU);
+
+    hPullV->GetXaxis()->SetTitle("pull");
+    hPullV->GetYaxis()->SetTitle("Entries");
+    beautifyHist(hPullV);
+
+    if (fitResU) { fitResU->SetLineColor(kOrange+7); fitResU->SetLineWidth(2); }
+    if (fitResV) { fitResV->SetLineColor(kOrange+7); fitResV->SetLineWidth(2); }
+    if (fitPullU) { fitPullU->SetLineColor(kOrange+7); fitPullU->SetLineWidth(2); }
+    if (fitPullV) { fitPullV->SetLineColor(kOrange+7); fitPullV->SetLineWidth(2); }
+
+    // PNG & PDF output
     TCanvas* c1 = new TCanvas("c1", "Residuals", 1200, 600);
     c1->Divide(2,1);
     c1->cd(1);
-    hResU->Draw();
-    if (fitResU) fitResU->SetLineColor(kRed);
+    hResU->Draw("HIST");
     if (fitResU) fitResU->Draw("same");
     c1->cd(2);
-    hResV->Draw();
-    if (fitResV) fitResV->SetLineColor(kRed);
+    hResV->Draw("HIST");
     if (fitResV) fitResV->Draw("same");
 
     c1->SaveAs("residuals.png");
+    c1->SaveAs("residuals.pdf");
 
     TCanvas* c2 = new TCanvas("c2", "Pulls", 1200, 600);
     c2->Divide(2,1);
     c2->cd(1);
-    hPullU->Draw();
-    if (fitPullU) fitPullU->SetLineColor(kRed);
+    hPullU->Draw("HIST");
     if (fitPullU) fitPullU->Draw("same");
     c2->cd(2);
-    hPullV->Draw();
-    if (fitPullV) fitPullV->SetLineColor(kRed);
+    hPullV->Draw("HIST");
     if (fitPullV) fitPullV->Draw("same");
+
     c2->SaveAs("pulls.png");
+    c2->SaveAs("pulls.pdf");
 
     // Store all histograms in a ROOT file
     TFile fout("fit_results.root", "RECREATE");
@@ -319,3 +349,4 @@ int main() {
 
     return 0;
 }
+
